@@ -1,0 +1,46 @@
+# 01 - Arquitectura de Red y Topología
+
+## Objetivo
+Diseñar e implementar una topología de red enterprise segmentada mediante VLANs e interfaces virtuales en pfSense. El objetivo es aislar la infraestructura crítica de administración y monitorización (SOC), los servicios de identidad corporativa (Active Directory), el segmento de usuarios y la red de emulación de amenazas (Red Team).
+
+## Prerrequisitos
+- Hipervisor configurado (Proxmox / VMware ESXi / VirtualBox / VMware Workstation).
+- Planificación de direccionamiento CIDR e interfaces virtuales.
+
+## Desarrollo
+
+### 1. Segmentación de Red y VLANs
+Se han definido 4 zonas aisladas detrás del firewall pfSense:
+
+- **DMZ_MGMT (`192.168.10.0/24`):** Alberga la infraestructura de seguridad (Wazuh Manager) y filtrado de red (Pi-hole).
+- **CORP_NET (`192.168.20.0/24`):** Aloja los controladores de dominio de Active Directory y servicios centrales de infraestructura.
+- **USER_NET (`192.168.30.0/24`):** Segmento para estaciones de trabajo finales (Windows 11, Linux).
+- **ATTACK_NET (`10.66.0.0/24`):** Red aislada para emulación de adversarios (Kali Linux), conectada al firewall para simular ataques externos e internos.
+
+### 2. Matriz de Direccionamiento IP
+
+| Host / Servicio | FQDN / Nombre | Zona / VLAN | IP Estática |
+| :--- | :--- | :--- | :--- |
+| **pfSense Gateway** | `pfsense.corp.local` | MGMT / CORP / USER / ATTACK | `192.168.10.1` / `.20.1` / `.30.1` |
+| **Pi-hole (DNS Filter)**| `pihole.corp.local` | DMZ_MGMT | `192.168.10.53` |
+| **Wazuh Manager** | `wazuh-appliance.corp.local` | DMZ_MGMT | `192.168.10.100` |
+| **Active Directory DC** | `dc01.corp.local` | CORP_NET | `192.168.20.10` |
+| **Win11 Endpoint** | `win11-ws01.corp.local` | USER_NET | `192.168.30.50` (DHCP) |
+| **Ubuntu Workstation** | `ub-ws01.corp.local` | USER_NET | `192.168.30.60` (DHCP) |
+| **Kali Linux** | `kali-attack` | ATTACK_NET | `10.66.0.100` |
+
+### 3. Flujo de Tráfico y DNS
+- **Consultas DNS:** Clientes -> Active Directory (`192.168.20.10`) -> Forwarder a Pi-hole (`192.168.10.53`) -> Gateway / Internet.
+- **Ingestión de Logs:** Agentes Wazuh en `USER_NET` y `CORP_NET` envían eventos mediante puerto TCP/UDP `1514` hacia el Wazuh Manager en `DMZ_MGMT`.
+
+## Evidencia
+- `screenshots/01-arquitectura/01-01-network-topology-diagram.png`: Diagrama de arquitectura de red del laboratorio.
+- `screenshots/01-arquitectura/01-02-pfsense-interfaces.png`: Configuración de interfaces y subredes en pfSense.
+
+## Resultados / Hallazgos
+- Se estableció una jerarquía clara de zonas de confianza (Trust Zones).
+- El aislamiento de la subred `ATTACK_NET` permite emular amenazas sin comprometer la red local del host físico.
+
+## Problemas encontrados y solución
+- **Desafío:** Evitar que el tráfico de DNS entre el cliente y el DC rompa la resolución del dominio `.corp.local` al implementar Pi-hole.
+- **Solución:** Configurar Pi-hole como *Upstream Forwarder* en el DNS de Windows Server, en lugar de asignarlo directamente por DHCP a los clientes de la red.
